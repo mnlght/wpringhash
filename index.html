@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Shower Presentation Engine</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="node_modules/@shower/ribbon/styles/styles.css">
+    <style>
+        .shower {
+            --slide-ratio: calc(16 / 9);
+        }
+    </style>
+</head>
+<body class="shower list">
+
+    <header class="caption">
+        <h1>Shower Presentation Engine</h1>
+        <p>Yours Truly, Famous Inc.</p>
+    </header>
+
+    <section class="slide">
+        <h1>Взгляд в кеш</h1>
+        <p>От Map до Consistent Hashing</p>
+    </section>
+    <section class="slide">
+        <h1>План доклада</h1>
+        <ul>
+            <li class="next">Сделаем простой кеш</li>
+            <li class="next">Усложним</li>
+            <li class="next">И ещё раз усложним</li>
+            <li class="next">Попутно объясняя, зачем</li>
+            <li class="next">По сути, экстерном изобретем <b>MemCached\Redis</b> и поймем подход Apache Cassandra</li>
+        </ul>
+    </section>
+    <section class="slide">
+        <h1>Начнем с хеширования</h1>
+    </section>
+    <section class="slide">
+        <h1>Хеширование</h1>
+        <p><b>Хеширование</b> - это процесс распределения/упорядочивания данных произвольной структуры в структуру ключ-значение с фиксированной длиной ключа и значения.</p>
+    </section>
+    <section class="slide">
+        <h1>Хеширование</h1>
+        <p><b>Хеш-функция</b> - это функция для генерации хеш-кодов. Хеш-функция должна удовлетворять нескольким критериям.</p>
+    </section>
+    <section class="slide">
+        <h1>Критерии хеш-функции</h1>
+        <ul>
+            <li class="next">Равномерное распределение. Каждое значение должно иметь равные шансы стать хеш-ключом</li>
+            <li class="next">Детерминированность. 1 и тот же ключ должен должен возвращать один и тот же хеш</li>
+            <li class="next">Скорость</li>
+        </ul>
+    </section>
+    <section class="slide">
+        <h1>Задача</h1>
+        <p>Реализовать InMemory Cache</p>
+        <ul>
+            <li class="next">Какая структура данных подойдёт?</li>
+            <li class="next">Почему не подойдёт классический массив\вектор?</li>
+        </ul>
+    </section>
+    <section class="slide">
+        <h2>Реализация</h2>
+        <pre>
+            <code></code>
+            <code>type Cache interface {</code>
+                        <code>	Set(k string, v string)</code>
+                        <code>	Get(k string) (string, bool)</code>
+            <code>}</code>
+        </pre>
+    </section>
+    <section class="slide">
+        <h2>Реализация</h2>
+        <pre style="font-size: 15px">
+           <code> type InMemoryCache struct {</code>
+	            <code>  data map[string]string</code>
+            <code>}</code>
+            <code>func (c *InMemoryCache) Set(k string, v string) {</code>
+            <code>  data[k] = v</code>
+            <code>}</code>
+            <code>func (c *InMemoryCache) Get(k string) (string, bool) {</code>
+            <code>  data, ok := c.data[k]</code>
+            <code>  return data, ok</code>
+            <code>}</code>
+        </pre>
+    </section>
+    <section class="slide">
+        <h2>Проблемы первой реализации</h2>
+        <ul>
+            <li class="next">Конкурентный доступ к map</li>
+            <li class="next">nil map problem</li>
+        </ul>
+    </section>
+    <section class="slide">
+        <h2>Решаем первые проблемы</h2>
+        <pre style="font-size: 9px">
+           <code> type InMemoryCache struct {</code>
+	            <code>  data map[string]string</code>
+	            <code>  mu sync.Mutex</code>
+            <code>}</code>
+            <code>func NewInMemoryCache() *InMemoryCache {</code>
+            <code>  return &InMemoryCache{</code>
+            <code>      data: make(map[string]string),</code>
+            <code>  }</code>
+            <code>}</code>
+            <code>func (c *InMemoryCache) Set(k string, v string) {</code>
+            <code>  c.mu.Lock()</code>
+            <code>  defer c.mu.Unlock()</code>
+            <code>  data[k] = v</code>
+            <code>}</code>
+            <code>func (c *InMemoryCache) Get(k string) (string, bool) {</code>
+            <code>  c.mu.Lock()</code>
+            <code>  defer c.mu.Unlock()</code>
+            <code>  data, ok := c.data[k]</code>
+            <code>  return data, ok</code>
+            <code>}</code>
+        </pre>
+    </section>
+    <section class="slide">
+        <h2>Проблемы второй реализации</h2>
+        <ul>
+            <li class="next">Слишком частый lock map</li>
+            <li class="next">Постоянная эвакуация данных</li>
+        </ul>
+    </section>
+    <section class="slide">
+        <h2>Решение этих проблем</h2>
+        <ul>
+            <li class="next">Добавляем сущность Shard</li>
+            <li class="next">Получаем базовый шардированный кеш, который не так часто лочится</li>
+            <li class="next">И может конфигурировать шарды</li>
+        </ul>
+    </section>
+    <section class="slide">
+        <h2>Вспоминаем про хеш-функцию</h2>
+        <ul>
+            <li class="next">Как нам определить, в какой шард писать?</li>
+        </ul>
+    </section>
+    <section class="slide">
+        <h2>Вспоминаем про хеш-функцию</h2>
+        <pre style="font-size: 20px">
+        <code> func hasher(k string) int {</code>
+        <code>  h := fnv.New32()</code>
+        <code>  _, _ = h.Write([]byte(k))</code>
+        <code>  return int(h.Sum32())</code>
+        <code>}</code>
+        </pre>
+    </section>
+    <section class="slide">
+        <h2>Как меняется наш код</h2>
+        <pre style="font-size: 20px">
+        <code> type Shard struct {</code>
+        <code>  data map[string]string</code>
+        <code>  mu sync.Mutex</code>
+        <code>}</code>
+        <code> type InMemoryCache struct {</code>
+        <code>  shards []Shard</code>
+        <code>}</code>
+        </pre>
+    </section>
+    <section class="slide">
+        <h2>Как меняется наш код</h2>
+        <pre style="font-size: 20px">
+        <code> func (c *InMemoryCache) Set(k string, v string) {</code>
+        <code>  shardId := hasher(k) % len(c.shards)</code>
+        <code>  c.shards[shardId].Set(k, v)</code>
+        <code>}</code>
+        <code> func (c *InMemoryCache) Get(k string) (string, bool) {</code>
+        <code>  shardId := hasher(k) % len(c.shards)</code>
+        <code>  return c.shards[shardId].Get(k)</code>
+        <code>}</code>
+        </pre>
+    </section>
+    <section class="slide">
+        <h2>Проблемы третьей реализации</h2>
+        <ul>
+            <li class="next">Что будет происходить с ключами, если мы добавим шард?</li>
+            <li class="next">Полная миграция ключей в кеше на каждое добавление шарда</li>
+        </ul>
+    </section>
+    <section class="slide">
+        <h2>Решение этих проблем</h2>
+        <ul>
+            <li class="next">Использовать подход Consistent Hashing</li>
+            <li class="next">В частности, Hash Ring</li>
+        </ul>
+    </section>
+    <section class="slide">
+        <h2>Consistent Hashing</h2>
+        <p><b>Consistent Hashing</b> - это по сути технология, подход к организации хранения данных, задача которого минимизировать время и ресурсы, затрачиваемые на перемещение данных при добавлении/удалении новых узлов/мест хранения ключей.</p>
+    </section>
+    <section class="slide">
+        <h2>Hash Ring</h2>
+        <ul>
+            <li class="next">Хеш-функция (одна и та же) применяется и для ключей значений, и для хеша узлов в кольце</li>
+            <li class="next">При добавлении значения кольцо обходится по часовой стрелке до момента поиска нужного узла</li>
+            <li class="next">При добавлении/удалении узла происходит ребалансировка против часовой стрелки</li>
+        </ul>
+    </section>
+    <section class="slide">
+        <h2>Базовая реализация Hash Ring</h2>
+        <pre style="font-size: 18px">
+        <code> type Node struct {</code>
+        <code>  ID    string</code>
+        <code>  Data  map[string]interface{}</code>
+        <code>  Token uint32</code>
+        <code>}</code>
+        <code> type HashRing struct {</code>
+        <code>  sync.RWMutex</code>
+        <code>  nodes      map[string]*Node</code>
+        <code>  ring       map[uint32]*Node</code>
+        <code>  sortedKeys []uint32</code>
+        <code>}</code>
+        </pre>
+    </section>
+    <section class="slide">
+        <h2>Базовая реализация Hash Ring. Удаление узла.</h2>
+        <pre style="font-size: 11px">
+        <code>func (h *HashRing) RemoveNode(nodeID string) {</code>
+        <code>  node, exists := h.nodes[nodeID]</code>
+        <code>  dataToTransfer := make(map[string]interface{})</code>
+        <code>  for k, v := range node.Data {</code>
+        <code>      dataToTransfer[k] = v</code>
+        <code>  }</code>
+        <code>  </code>
+
+        <code>  var nextNode *Node</code>
+        <code>  if len(h.sortedKeys) > 1 {</code>
+        <code>  idx := sort.Search(len(h.sortedKeys), func(i int) bool {</code>
+        <code>      return h.sortedKeys[i] >= node.Token</code>
+        <code>  })</code>
+        <code>  nextIdx := (idx + 1) % len(h.sortedKeys)</code>
+        <code>  nextNode = h.ring[h.sortedKeys[nextIdx]]</code>
+        <code>  ...</code>
+        <code>}</code>
+        </pre>
+    </section>
+    <section class="slide">
+        <h2>Базовая реализация Hash Ring. Удаление узла.</h2>
+        <pre style="font-size: 12px">
+
+        <code>  ...</code>
+        <code>  delete(h.nodes, nodeID)</code>
+        <code>  delete(h.ring, node.Token)</code>
+        <code>  h.updateSortedKeys()</code>
+        <code>  if nextNode != nil && len(dataToTransfer) > 0 {</code>
+        <code>      for k, v := range dataToTransfer {</code>
+        <code>          nextNode.Data[k] = v</code>
+        <code>      }</code>
+        <code>  }</code>
+        <code>}</code>
+        </pre>
+    </section>
+    <section class="slide">
+        <img src="1666715227884.png" alt="Shower logo">
+    </section>
+    <section class="slide">
+        <h2>Конец</h2>
+    </section>
+    <footer class="badge">
+        <a href="https://github.com/shower/shower">Fork me on GitHub</a>
+    </footer>
+
+    <div class="progress"></div>
+
+    <script src="node_modules/@shower/core/dist/shower.js"></script>
+    <!-- Copyright © 2025 Yours Truly, Famous Inc. -->
+
+</body>
+</html>
